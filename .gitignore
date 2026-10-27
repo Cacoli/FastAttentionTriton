@@ -1,0 +1,27 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+venv/
+.venv/
+env/
+.env/
+
+# Distribution / packaging
+build/
+dist/
+*.egg-info/
+
+# Plots and benchmark output data
+*.png
+*.jpg
+*.svg
+benchmark_results/
+
+# Editor / OS files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

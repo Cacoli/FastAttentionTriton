@@ -1,0 +1,11 @@
+# TritonForge Dependencies
+# Core deep learning framework with CUDA acceleration
+torch
+
+# OpenAI Triton compiler for custom GPU kernels
+# Note for Windows users: if 'pip install triton' cannot find wheels on Windows,
+# you can use WSL2 or 'triton-windows' (pip install triton-windows).
+triton
+
+# Visualization and benchmarking plots
+matplotlib
