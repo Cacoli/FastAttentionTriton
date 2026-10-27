@@ -183,24 +183,8 @@ Summary: 48/48 Passed (100.0%) | 0 Failed | Total Time: 6.97s
 | **2048** | 0.708 ms | 0.905 ms | 0.78x | 12.14 TFLOP/s | **9.49 TFLOP/s** |
 | **4096** | 1.801 ms | 2.288 ms | 0.79x | 19.08 TFLOP/s | **15.02 TFLOP/s** |
 
-![TritonForge Performance Benchmark](benchmark_results.png)
 
-### Systems & Performance Insights
-
-1. **Amortization of Kernel Launch Overhead**:
-   - At small sequence lengths ($N=512$), only $\lceil 512 / 128 \rceil = 4$ query tiles are dispatched per batch/head, meaning fixed Python/Triton driver dispatch overhead represents a larger proportion of total runtime.
-   - At long sequence lengths ($N=4096$), work per thread block increases quadratically, completely amortizing launch latency and driving throughput from **4.19 TFLOP/s to 15.02 TFLOP/s** (a **3.6x compute scaling**).
-
-2. **Parity with Native C++ / CuDNN Implementations**:
-   - PyTorch's native SDPA dispatches to heavily hand-tuned CUDA C++ kernels (CuDNN / FlashAttention-2 C++ templates).
-   - Our pure Python Triton kernel achieves **~80% of PyTorch's hand-optimized C++ speed** with clean, maintainable, readable code and zero C++ boilerplate.
-
-3. **SRAM Occupancy & Tile Sizing**:
-   - Setting $\text{BLOCK\_M} = 128$, $\text{BLOCK\_N} = 64$, and $\text{BLOCK\_D} = 64$ keeps shared memory consumption per SM under 32 KB, allowing multiple active thread blocks per Streaming Multiprocessor without spilling to local memory.
-
----
-
-## References & Further Reading
+## References 
 
 1. **FlashAttention: Fast and Memory-Efficient Exact Attention with IO-Awareness**  
    Tri Dao, Daniel Y. Fu, Stefano Ermon, Atri Rudra, Christopher Ré (NeurIPS 2022)  
