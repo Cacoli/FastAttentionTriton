@@ -24,7 +24,7 @@ Standard transformer attention scales quadratically in memory: materializing the
 
 ## Architectural & Algorithmic Foundations
 
-### 1. The IO-Aware Memory Hierarchy Bottleneck
+###  The IO-Aware Memory Hierarchy Bottleneck
 
 Modern GPU architectures (e.g., Ampere, Ada Lovelace, Hopper) exhibit a steep performance disparity between compute engines and memory hierarchies:
 - **On-Chip SRAM (Shared Memory / L1)**: $\sim 15\text{--}20\text{ TB/s}$ bandwidth.
@@ -80,61 +80,6 @@ flowchart TD
 
 ---
 
-### 2. Mathematical Formulation of Fused Online Softmax
-
-Standard softmax over a full row vector $x \in \mathbb{R}^N$ requires two global reduction passes:
-1. $m = \max_j x_j$
-2. $l = \sum_j \exp(x_j - m)$
-3. $\text{softmax}(x)_j = \frac{\exp(x_j - m)}{l}$
-
-FlashAttention avoids multiple global passes by updating the row-max and normalizer incrementally using the **Online Softmax** algorithm.
-
-For a fixed query tile $Q_i$ of size $\text{BLOCK\_M} \times \text{BLOCK\_D}$, we maintain three accumulators in FP32 precision:
-- Running row maximum vector: $m_i \in \mathbb{R}^{\text{BLOCK\_M}}$ (initialized to $-\infty$)
-- Running row sum of exponentials: $l_i \in \mathbb{R}^{\text{BLOCK\_M}}$ (initialized to $0$)
-- Running unnormalized output accumulator: $\text{acc}_i \in \mathbb{R}^{\text{BLOCK\_M} \times \text{BLOCK\_D}}$ (initialized to $0$)
-
-For each key/value tile step $j \in \{0, \dots, \lceil N_k / \text{BLOCK\_N} \rceil - 1\}$:
-
-1. **Local Score Computation**:
-   $$S_{ij} = (Q_i K_j^T) \cdot \frac{1}{\sqrt{d}} \quad \in \mathbb{R}^{\text{BLOCK\_M} \times \text{BLOCK\_N}}$$
-
-2. **Causal Masking (Optional)**:
-   $$S_{ij}[r, c] = \begin{cases} S_{ij}[r, c] & \text{if } \text{offs\_m}[r] \ge \text{offs\_n}[c] \\ -\infty & \text{otherwise} \end{cases}$$
-
-3. **Running Row Maximum Update**:
-   $$\tilde{m}_{ij} = \max_{\text{row}}(S_{ij})$$
-   $$m_i^{\text{new}} = \max(m_i, \tilde{m}_{ij})$$
-
-4. **Rescaling Factor for Previously Accumulated Terms**:
-   $$\alpha = \exp(m_i - m_i^{\text{new}})$$
-   *(Note: Guarded against $\exp(-\infty - (-\infty)) = \text{NaN}$ by setting $\alpha = 0.0$ when $m_i = -\infty$)*
-
-5. **Current Tile Probabilities**:
-   $$P_{ij} = \exp(S_{ij} - m_i^{\text{new}})$$
-   *(Note: Guarded to strictly output $0.0$ where scores were masked with $-\infty$)*
-
-6. **Running Normalizer Update**:
-   $$l_i^{\text{new}} = l_i \cdot \alpha + \sum_{\text{row}} P_{ij}$$
-
-7. **Accumulator Rescaling and GEMM**:
-   $$\text{acc}_i = \text{acc}_i \cdot \alpha[:, \text{None}] + P_{ij} @ V_j$$
-
-8. **Final Normalization (executed once after visiting all key/value tiles)**:
-   $$O_i = \frac{\text{acc}_i}{l_i[:, \text{None}]}$$
-
----
-
-### 3. Causal Block Pruning ($O(N^2/2)$ FLOP Optimization)
-
-For autoregressive causal language modeling, queries at position $r$ cannot attend to keys at position $c > r$. 
-
-In standard kernels, the full $N \times N$ matrix is still loaded and masked. In TritonForge:
-- A query tile covering row indices $[r_{\text{start}}, r_{\text{end}}]$ has a maximum query index of $r_{\text{max}} = (\text{pid\_m} + 1) \cdot \text{BLOCK\_M} - 1$.
-- Any key tile whose starting index exceeds $r_{\text{max}}$ consists purely of masked elements.
-- The inner key loop dynamically truncates:
-  $$\text{hi\_bound} = \min(N_k, (\text{pid\_m} + 1) \cdot \text{BLOCK\_M})$$
-- Key tiles strictly in the upper triangle are skipped entirely. For long sequences, this prunes **$50\%$ of all matrix multiplications and memory accesses**.
 
 ---
 
@@ -165,34 +110,12 @@ TritonForge/
 
 ---
 
-## Setup & Execution Guide
+## Setup 
 
 ### Environment Requirements
 - **OS**: Linux or Windows Subsystem for Linux (WSL2 / Ubuntu 22.04+)
 - **GPU**: NVIDIA GPU with CUDA Compute Capability $\ge 8.0$ (Ampere, Ada Lovelace, Hopper)
 - **Python**: $\ge 3.10$
-
-### 1. Automated Setup (Recommended)
-
-In your terminal or WSL shell:
-
-```bash
-cd TritonForge
-chmod +x setup.sh
-./setup.sh
-```
-
-### 2. Manual Installation
-
-```bash
-# Create and activate virtual environment
-python3 -m venv venv
-source venv/bin/activate
-
-# Upgrade pip and install dependencies
-pip install --upgrade pip
-pip install torch triton matplotlib
-```
 
 ---
 
@@ -274,24 +197,6 @@ Summary: 48/48 Passed (100.0%) | 0 Failed | Total Time: 6.97s
 
 3. **SRAM Occupancy & Tile Sizing**:
    - Setting $\text{BLOCK\_M} = 128$, $\text{BLOCK\_N} = 64$, and $\text{BLOCK\_D} = 64$ keeps shared memory consumption per SM under 32 KB, allowing multiple active thread blocks per Streaming Multiprocessor without spilling to local memory.
-
----
-
-## Running Commands Summary
-
-```bash
-# Run the complete 48-case test matrix
-python test_correctness.py
-
-# Run a quick 8-case check
-python test_correctness.py --quick
-
-# Run performance benchmark and regenerate comparison plot
-python benchmark.py --seq-lens 512 1024 2048 4096
-
-# Run causal benchmark and save custom plot
-python benchmark.py --seq-lens 512 1024 2048 4096 --causal --plot benchmark_causal.png
-```
 
 ---
 
